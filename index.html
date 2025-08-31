@@ -19,6 +19,7 @@
         .card { @apply border rounded-lg bg-white/70; }
         .card-head { @apply border-b text-center text-sm text-gray-700 py-1; }
         .metric { @apply bg-white/60 rounded-lg p-3; }
+        .help { @apply text-xs text-gray-500; }
       }
     </style>
 
@@ -41,7 +42,7 @@
       const { useState, useEffect, useMemo } = React;
 
       // ====== Config/Chaves ======
-      const SCHEMA_VERSION = 2;
+      const SCHEMA_VERSION = 3;
       const LS_KEYS = {
         history: 'insulin-history',
         prefs: 'insulin-prefs',
@@ -49,7 +50,7 @@
       };
       const dayMs = 24*60*60*1000;
 
-      // ====== Dados dos pontos (coordenadas 0..100 x 0..120) ======
+      // ====== Pontos (0..100 x 0..120) ======
       const injectionPoints = {
         abdomen: {
           name: 'Abdômen',
@@ -93,12 +94,9 @@
       };
 
       // ====== Utils ======
-      function loadJSON(key, fallback) {
-        try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
-        catch { return fallback; }
-      }
-      function saveJSON(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
-      function dist(p1, p2) { const dx = p1.x - p2.x; const dy = p1.y - p2.y; return Math.sqrt(dx*dx + dy*dy); }
+      const loadJSON = (k,f)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):f}catch{return f}};
+      const saveJSON = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
+      const dist=(p1,p2)=>Math.hypot(p1.x-p2.x,p1.y-p2.y);
 
       const pointById = (() => {
         const map = new Map();
@@ -108,17 +106,18 @@
         return map;
       })();
 
+      // Status: 'available' (verde) | 'blocked' (vermelho dentro do cooldown)
       function getPointStatus(pointId, history, prefs) {
         const cdMs = (prefs?.cooldownDays ?? defaultPrefs.cooldownDays) * dayMs;
         const entries = history.filter(h => h.pointId === pointId).sort((a,b)=>b.ts-a.ts);
         if (!entries.length) return 'available';
         const elapsed = Date.now() - entries[0].ts;
-        return elapsed >= cdMs ? 'available' : 'recent';
+        return elapsed >= cdMs ? 'available' : 'blocked';
       }
 
       function suggestNextPoint(history, prefs) {
-        const enabledRegions = prefs.enabledRegions || defaultPrefs.enabledRegions;
-        const usable = Object.values(injectionPoints).filter(a => enabledRegions[a.region]).flatMap(a => a.points);
+        const enabled = prefs.enabledRegions || defaultPrefs.enabledRegions;
+        const usable = Object.values(injectionPoints).filter(a=>enabled[a.region]).flatMap(a=>a.points);
         if (!usable.length) return null;
         const last = history[0] ? pointById.get(history[0].pointId) : null;
 
@@ -128,42 +127,45 @@
 
         const scored = base.map(({ pt, status }) => {
           let score = 0;
-          if (status === 'available') score += 50;
+          if (status === 'available') score += 50; else score -= 100; // evita bloqueados
           if (last) {
             if (prefs.alternateSide)   score += (pt.side   !== last.side   ? 20 : -10);
             if (prefs.alternateRegion) score += (pt.region !== last.region ? 15 :  -5);
             score += Math.min(20, dist(pt.position, last.position));
           }
-          // penaliza repetição recente (30d)
+          // penaliza repetição 30d
           const lookback = Date.now() - 30*dayMs;
           const count30 = history.filter(h => h.ts >= lookback && h.pointId === pt.id).length;
           score += (10 - Math.min(10, count30*2));
           return { pt, score };
         }).sort((a,b)=>b.score-a.score);
 
+        // se o top for bloqueado e existem disponíveis, pega o primeiro disponível
+        if (scored[0] && getPointStatus(scored[0].pt.id, history, prefs) === 'blocked') {
+          const firstAvail = scored.find(s => getPointStatus(s.pt.id, history, prefs) === 'available');
+          return firstAvail ? firstAvail.pt : scored[0].pt;
+        }
         return scored[0]?.pt ?? null;
       }
 
-      // ====== Ícones mínimos (inline SVG) para não depender de libs ======
       const IconHistory = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10.06 1 1 0 1 0-2-.22A7 7 0 1 1 13 5a1 1 0 0 0 0-2Zm-1 4a1 1 0 0 0-1 1v4.59l3.3 3.3a1 1 0 1 0 1.4-1.42L13 11.59V8a1 1 0 0 0-1-1Z"/></svg>);
       const IconSettings = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9.4 4a7.8 7.8 0 0 0-.1-1l2-1.55-1.9-3.29-2.4 1a8.2 8.2 0 0 0-1.7-1L16.8 2h-3.6l-.5 2.65a8.2 8.2 0 0 0-1.7 1l-2.4-1L6.8 8.5l2 1.55a7.8 7.8 0 0 0 0 2L6.8 13.6l1.9 3.3 2.4-1a8.2 8.2 0 0 0 1.7 1L13.2 22h3.6l.5-2.65a8.2 8.2 0 0 0 1.7-1l2.4 1 1.9-3.3-2-1.55a7.8 7.8 0 0 0 .1-1Z"/></svg>);
       const IconCheck = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M9 16.17 4.83 12 3.41 13.41l5.59 5.59L21 7.99 19.59 6.58z"/></svg>);
 
-      // ====== Silhueta usando IMAGEM EXTERNA (alta qualidade) com fallback vetorial ======
+      // Silhueta usando imagem externa (alta qualidade) com fallback vetorial
       const Silhouette = () => {
         const [imgOk, setImgOk] = useState(true);
         return (
           <>
             {imgOk ? (
               <image
-                href="images/body.png"     // coloque sua imagem aqui (PNG ou SVG)
+                href="images/body.png"
                 x="8" y="0" width="84" height="120"
                 preserveAspectRatio="xMidYMid meet"
                 opacity="0.98"
                 onError={() => setImgOk(false)}
               />
             ) : (
-              // Fallback vetorial suave (se a imagem não carregar por algum motivo)
               <>
                 <defs>
                   <linearGradient id="silFill" x1="0" y1="0" x2="0" y2="1">
@@ -201,6 +203,7 @@
         });
         const [view, setView] = useState('main'); // main | history | settings
         const [manualSelection, setManualSelection] = useState(null);
+        const [confirmChecked, setConfirmChecked] = useState(false);
         const [lastAction, setLastAction] = useState(null);
 
         useEffect(() => saveJSON(LS_KEYS.prefs, prefs), [prefs]);
@@ -208,19 +211,25 @@
 
         const suggestedPoint = useMemo(() => manualSelection || suggestNextPoint(history, prefs), [history, prefs, manualSelection]);
 
+        const statusOfSelected = suggestedPoint ? getPointStatus(suggestedPoint.id, history, prefs) : null;
+        const canRegister = suggestedPoint && confirmChecked && statusOfSelected === 'available';
+
         function getStatusColor(status) {
           if (status === 'available') return 'fill-green-500/70';
-          if (status === 'recent')    return 'fill-yellow-400/80';
-          return 'fill-red-500/70';
+          if (status === 'blocked')   return 'fill-red-500/80';
+          return 'fill-gray-400/70';
         }
-        const onCircleClick = (pt) => setManualSelection(prev => prev?.id === pt.id ? null : pt);
+        const onCircleClick = (pt) => { setManualSelection(prev => prev?.id === pt.id ? null : pt); setConfirmChecked(false); };
 
         function recordInjection(point) {
           if (!point) return;
+          const status = getPointStatus(point.id, history, prefs);
+          if (status !== 'available') return; // defesa
           const entry = { id: `h_${Date.now()}`, pointId: point.id, region: point.region, side: point.side, ts: Date.now(), note: '' };
           setHistory([entry, ...history]);
           setLastAction({ type: 'add', entry });
           setManualSelection(null);
+          setConfirmChecked(false);
         }
         function undoLast() {
           if (lastAction?.type !== 'add') return;
@@ -265,7 +274,7 @@
                       .map(pt => {
                         const status = getPointStatus(pt.id, history, prefs);
                         const isSelected = (manualSelection?.id || suggestedPoint?.id) === pt.id;
-                        const label = `${pointById.get(pt.id).areaName} - ${pt.name} - ${status}`;
+                        const label = `${pointById.get(pt.id).areaName} - ${pt.name} - ${status === 'available' ? 'Disponível' : 'Bloqueado'}`;
                         return (
                           <circle key={pt.id}
                                   cx={pt.position.x} cy={pt.position.y}
@@ -275,7 +284,9 @@
                                   strokeWidth={isSelected ? 1.2 : 0.6}
                                   vectorEffect="non-scaling-stroke"
                                   role="button" aria-label={label}
-                                  onClick={() => onCircleClick(pointById.get(pt.id))} />
+                                  onClick={() => onCircleClick(pointById.get(pt.id))}>
+                            <title>{label}</title>
+                          </circle>
                         );
                       })}
                   </svg>
@@ -295,8 +306,25 @@
                         <span className="badge">Alternância região: {prefs.alternateRegion ? 'On' : 'Off'}</span>
                         <span className="badge">Cooldown: {prefs.cooldownDays}d</span>
                       </div>
+
+                      {/* Confirmação explícita */}
+                      <label className="inline-flex items-center gap-2 pt-2">
+                        <input type="checkbox" checked={confirmChecked}
+                               onChange={e => setConfirmChecked(e.target.checked)}
+                               disabled={!suggestedPoint || statusOfSelected==='blocked'} />
+                        Confirmar aplicação
+                      </label>
+                      {statusOfSelected === 'blocked' && (
+                        <div className="help">
+                          Este ponto está <strong>bloqueado</strong> pelo cooldown. Selecione outro ponto disponível.
+                        </div>
+                      )}
+
                       <div className="flex gap-2 pt-2">
-                        <button className="btn" onClick={() => recordInjection(suggestedPoint)}><IconCheck className="mr-2" />Confirmar aplicação</button>
+                        <button className="btn" disabled={!canRegister}
+                                onClick={() => recordInjection(suggestedPoint)}>
+                          <IconCheck className="mr-2" />Registrar aplicação
+                        </button>
                         {lastAction?.type === 'add' && <button className="btn-outline" onClick={undoLast}>Desfazer</button>}
                       </div>
 
@@ -307,7 +335,7 @@
                             <span className="w-3 h-3 rounded-full bg-green-500/70 inline-block border border-gray-800"></span> Disponível
                           </span>
                           <span className="inline-flex items-center gap-1">
-                            <span className="w-3 h-3 rounded-full bg-yellow-400/80 inline-block border border-gray-800"></span> Recente
+                            <span className="w-3 h-3 rounded-full bg-red-500/80 inline-block border border-gray-800"></span> Bloqueado (cooldown)
                           </span>
                         </div>
                       </div>
@@ -337,7 +365,7 @@
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 px-4 pb-4">
+              <p className="help px-4 pb-4">
                 Este app não fornece aconselhamento médico. Ajuste preferências conforme orientação de seu profissional de saúde.
               </p>
             </div>
