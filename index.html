@@ -8,7 +8,7 @@
     <!-- Tailwind via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- Component styles using Tailwind Play CDN (@apply inside @layer) -->
+    <!-- Estilos utilitários via Tailwind Play (@apply dentro de @layer) -->
     <style type="text/tailwindcss">
       @layer components {
         .btn-base { @apply inline-flex items-center justify-center rounded-md font-medium transition-colors
@@ -49,7 +49,7 @@
       };
       const dayMs = 24*60*60*1000;
 
-      // ====== Dados dos pontos ======
+      // ====== Dados dos pontos (coordenadas 0..100 x 0..120) ======
       const injectionPoints = {
         abdomen: {
           name: 'Abdômen',
@@ -134,73 +134,356 @@
             if (prefs.alternateRegion) score += (pt.region !== last.region ? 15 :  -5);
             score += Math.min(20, dist(pt.position, last.position));
           }
+          // penaliza repetição recente (30d)
+          const lookback = Date.now() - 30*dayMs;
+          const count30 = history.filter(h => h.ts >= lookback && h.pointId === pt.id).length;
+          score += (10 - Math.min(10, count30*2));
           return { pt, score };
         }).sort((a,b)=>b.score-a.score);
 
         return scored[0]?.pt ?? null;
       }
 
-      // ====== Silhueta vetorial ======
-      const Silhouette = () => (
-        <>
-          <defs>
-            <linearGradient id="silFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#eef2f7"/>
-              <stop offset="100%" stop-color="#dfe6ee"/>
-            </linearGradient>
-          </defs>
-          <circle cx="50" cy="14.5" r="8.2" fill="url(#silFill)" stroke="#1f2937" stroke-width="0.7"/>
-          <path d="M45 22.5 Q50 24 55 22.5 L55 26.5 Q50 27.5 45 26.5 Z"
-                fill="url(#silFill)" stroke="#1f2937" stroke-width="0.7"/>
-          <path d="M27,33 Q33,27 41,28 H59 Q67,27 73,33
-                   C76.5,36.5 78,40.5 78,46
-                   Q78,53 71.5,56.5
-                   L71.5,76 Q71.5,85 74.5,91
-                   C76,94.2 77,97.5 77,101.2
-                   L77,106.5 Q73,108.5 68,108.8
-                   L32,108.8 Q27,108.5 23,106.5
-                   L23,101.2 C23,97.5 24,94.2 25.5,91
-                   Q28.5,85 28.5,76
-                   L28.5,56.5 Q22,53 22,46
-                   C22,40.5 23.5,36.5 27,33 Z"
-                fill="url(#silFill)" stroke="#1f2937" stroke-width="0.7"/>
-        </>
-      );
+      // ====== Ícones mínimos (inline SVG) para não depender de libs ======
+      const IconHistory = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10.06 1 1 0 1 0-2-.22A7 7 0 1 1 13 5a1 1 0 0 0 0-2Zm-1 4a1 1 0 0 0-1 1v4.59l3.3 3.3a1 1 0 1 0 1.4-1.42L13 11.59V8a1 1 0 0 0-1-1Z"/></svg>);
+      const IconSettings = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9.4 4a7.8 7.8 0 0 0-.1-1l2-1.55-1.9-3.29-2.4 1a8.2 8.2 0 0 0-1.7-1L16.8 2h-3.6l-.5 2.65a8.2 8.2 0 0 0-1.7 1l-2.4-1L6.8 8.5l2 1.55a7.8 7.8 0 0 0 0 2L6.8 13.6l1.9 3.3 2.4-1a8.2 8.2 0 0 0 1.7 1L13.2 22h3.6l.5-2.65a8.2 8.2 0 0 0 1.7-1l2.4 1 1.9-3.3-2-1.55a7.8 7.8 0 0 0 .1-1Z"/></svg>);
+      const IconCheck = (p) => (<svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M9 16.17 4.83 12 3.41 13.41l5.59 5.59L21 7.99 19.59 6.58z"/></svg>);
+
+      // ====== Silhueta usando IMAGEM EXTERNA (alta qualidade) com fallback vetorial ======
+      const Silhouette = () => {
+        const [imgOk, setImgOk] = useState(true);
+        return (
+          <>
+            {imgOk ? (
+              <image
+                href="images/body.png"     // coloque sua imagem aqui (PNG ou SVG)
+                x="8" y="0" width="84" height="120"
+                preserveAspectRatio="xMidYMid meet"
+                opacity="0.98"
+                onError={() => setImgOk(false)}
+              />
+            ) : (
+              // Fallback vetorial suave (se a imagem não carregar por algum motivo)
+              <>
+                <defs>
+                  <linearGradient id="silFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#eef2f7"/>
+                    <stop offset="100%" stopColor="#dfe6ee"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="50" cy="14.5" r="8.2" fill="url(#silFill)" stroke="#1f2937" strokeWidth="0.7"/>
+                <path d="M45 22.5 Q50 24 55 22.5 L55 26.5 Q50 27.5 45 26.5 Z"
+                      fill="url(#silFill)" stroke="#1f2937" strokeWidth="0.7"/>
+                <path d="M27,33 Q33,27 41,28 H59 Q67,27 73,33
+                         C76.5,36.5 78,40.5 78,46
+                         Q78,53 71.5,56.5
+                         L71.5,76 Q71.5,85 74.5,91
+                         C76,94.2 77,97.5 77,101.2
+                         L77,106.5 Q73,108.5 68,108.8
+                         L32,108.8 Q27,108.5 23,106.5
+                         L23,101.2 C23,97.5 24,94.2 25.5,91
+                         Q28.5,85 28.5,76
+                         L28.5,56.5 Q22,53 22,46
+                         C22,40.5 23.5,36.5 27,33 Z"
+                      fill="url(#silFill)" stroke="#1f2937" strokeWidth="0.7"/>
+              </>
+            )}
+          </>
+        );
+      };
 
       // ====== App ======
       function App() {
         const [prefs, setPrefs] = useState(() => ({ ...defaultPrefs, ...loadJSON(LS_KEYS.prefs, {}) }));
-        const [history, setHistory] = useState(() => loadJSON(LS_KEYS.history, []));
+        const [history, setHistory] = useState(() => {
+          const raw = loadJSON(LS_KEYS.history, []);
+          return Array.isArray(raw) ? raw.map(x => ({ ...x, ts: typeof x.ts==='number' ? x.ts : Date.parse(x.ts)||Date.now() })) : [];
+        });
+        const [view, setView] = useState('main'); // main | history | settings
         const [manualSelection, setManualSelection] = useState(null);
+        const [lastAction, setLastAction] = useState(null);
+
+        useEffect(() => saveJSON(LS_KEYS.prefs, prefs), [prefs]);
+        useEffect(() => saveJSON(LS_KEYS.history, history), [history]);
+
         const suggestedPoint = useMemo(() => manualSelection || suggestNextPoint(history, prefs), [history, prefs, manualSelection]);
 
-        const getStatusColor = (s) => s === 'available' ? 'fill-green-500/70' : 'fill-yellow-400/80';
+        function getStatusColor(status) {
+          if (status === 'available') return 'fill-green-500/70';
+          if (status === 'recent')    return 'fill-yellow-400/80';
+          return 'fill-red-500/70';
+        }
+        const onCircleClick = (pt) => setManualSelection(prev => prev?.id === pt.id ? null : pt);
 
-        return (
-          <div className="container mx-auto max-w-4xl p-4 space-y-4">
+        function recordInjection(point) {
+          if (!point) return;
+          const entry = { id: `h_${Date.now()}`, pointId: point.id, region: point.region, side: point.side, ts: Date.now(), note: '' };
+          setHistory([entry, ...history]);
+          setLastAction({ type: 'add', entry });
+          setManualSelection(null);
+        }
+        function undoLast() {
+          if (lastAction?.type !== 'add') return;
+          setHistory(history.filter(h => h.id !== lastAction.entry.id));
+          setLastAction(null);
+        }
+
+        const locale = prefs.language === 'en' ? 'en-US' : 'pt-BR';
+        const metrics = useMemo(() => {
+          const mk = (days) => {
+            const cutoff = Date.now() - days*dayMs;
+            const slice = history.filter(h => h.ts >= cutoff);
+            const byRegion = {}; const bySide = { left:0, right:0 };
+            slice.forEach(h => { byRegion[h.region]=(byRegion[h.region]||0)+1; bySide[h.side]=(bySide[h.side]||0)+1; });
+            return { total: slice.length, byRegion, bySide };
+          };
+          return { d7: mk(7), d30: mk(30) };
+        }, [history]);
+
+        const MainView = () => (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-bold">InsulinRotate</h1>
+              <div className="flex gap-2">
+                <button className="btn-outline" onClick={() => setView('history')}><IconHistory className="mr-2" />Histórico</button>
+                <button className="btn-outline" onClick={() => setView('settings')}><IconSettings className="mr-2" />Configurações</button>
+              </div>
+            </div>
+
             <div className="card">
               <div className="card-head">Próximo ponto sugerido</div>
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex items-center justify-center">
-                  <svg viewBox="0 0 100 120" className="w-full h-full" style={{ maxWidth:'380px' }}>
+                  <svg viewBox="0 0 100 120" className="w-full h-full"
+                       style={{ maxWidth:'400px', margin:'0 auto' }}
+                       role="img" aria-label="Mapa do corpo"
+                       shapeRendering="geometricPrecision">
                     <Silhouette />
-                    {Object.values(injectionPoints).flatMap(a=>a.points).map(pt=>{
-                      const status=getPointStatus(pt.id, history, prefs);
-                      const isSelected=(manualSelection?.id||suggestedPoint?.id)===pt.id;
-                      return <circle key={pt.id} cx={pt.position.x} cy={pt.position.y} r={isSelected?3.2:2.5}
-                              className={`${getStatusColor(status)} ${isSelected?'animate-pulse':''}`}
-                              stroke={isSelected?'#fff':'#111'} strokeWidth={isSelected?1.2:0.6}
-                              onClick={()=>setManualSelection(pt)} />;
-                    })}
+                    {Object.values(injectionPoints)
+                      .filter(a => prefs.enabledRegions[a.region])
+                      .flatMap(a => a.points)
+                      .map(pt => {
+                        const status = getPointStatus(pt.id, history, prefs);
+                        const isSelected = (manualSelection?.id || suggestedPoint?.id) === pt.id;
+                        const label = `${pointById.get(pt.id).areaName} - ${pt.name} - ${status}`;
+                        return (
+                          <circle key={pt.id}
+                                  cx={pt.position.x} cy={pt.position.y}
+                                  r={isSelected ? 3.2 : 2.5}
+                                  className={`${getStatusColor(status)} ${isSelected ? 'animate-pulse' : ''}`}
+                                  stroke={isSelected ? '#ffffff' : '#111827'}
+                                  strokeWidth={isSelected ? 1.2 : 0.6}
+                                  vectorEffect="non-scaling-stroke"
+                                  role="button" aria-label={label}
+                                  onClick={() => onCircleClick(pointById.get(pt.id))} />
+                        );
+                      })}
                   </svg>
                 </div>
-                <div>
-                  {suggestedPoint &&
-                    <div className="font-semibold">{pointById.get(suggestedPoint.id).areaName} · {suggestedPoint.name}</div>
-                  }
+
+                <div className="space-y-3">
+                  {suggestedPoint ? (
+                    <>
+                      <div className="text-sm text-gray-600">
+                        {manualSelection ? 'Ponto selecionado manualmente:' : 'Sugerido pelo algoritmo:'}
+                      </div>
+                      <div className="text-lg font-semibold">
+                        {pointById.get(suggestedPoint.id).areaName} · {suggestedPoint.name} ({suggestedPoint.side === 'left' ? 'Esquerdo' : 'Direito'})
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <span className="badge">Alternância lado: {prefs.alternateSide ? 'On' : 'Off'}</span>
+                        <span className="badge">Alternância região: {prefs.alternateRegion ? 'On' : 'Off'}</span>
+                        <span className="badge">Cooldown: {prefs.cooldownDays}d</span>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button className="btn" onClick={() => recordInjection(suggestedPoint)}><IconCheck className="mr-2" />Confirmar aplicação</button>
+                        {lastAction?.type === 'add' && <button className="btn-outline" onClick={undoLast}>Desfazer</button>}
+                      </div>
+
+                      <div className="pt-4">
+                        <div className="text-sm font-medium mb-2">Legenda</div>
+                        <div className="flex gap-6 text-sm items-center flex-wrap">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-3 h-3 rounded-full bg-green-500/70 inline-block border border-gray-800"></span> Disponível
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-3 h-3 rounded-full bg-yellow-400/80 inline-block border border-gray-800"></span> Recente
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-500">Nenhum ponto disponível (verifique preferências/áreas ativas).</div>
+                  )}
                 </div>
               </div>
             </div>
+
+            <div className="card">
+              <div className="card-head">Métricas rápidas</div>
+              <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="metric">
+                  <p className="text-xs text-gray-600">Total (7d)</p>
+                  <p className="text-lg font-bold">{metrics.d7.total}</p>
+                </div>
+                <div className="metric">
+                  <p className="text-xs text-gray-600">Total (30d)</p>
+                  <p className="text-lg font-bold">{metrics.d30.total}</p>
+                </div>
+                {Object.entries(injectionPoints).map(([key, area]) => (
+                  <div key={key} className="metric">
+                    <p className="text-xs text-gray-600">{area.name} (30d)</p>
+                    <p className="text-lg font-bold">{metrics.d30.byRegion[area.region] || 0}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 px-4 pb-4">
+                Este app não fornece aconselhamento médico. Ajuste preferências conforme orientação de seu profissional de saúde.
+              </p>
+            </div>
+          </div>
+        );
+
+        const [editId, setEditId] = useState(null);
+        const [editNote, setEditNote] = useState('');
+
+        const HistoryView = () => (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Histórico</h2>
+              <div className="flex gap-2">
+                <label className="btn-outline cursor-pointer">
+                  Importar JSON
+                  <input type="file" accept="application/json" className="hidden"
+                         onChange={e => {
+                           const file = e.target.files?.[0];
+                           if (!file) return;
+                           const r = new FileReader();
+                           r.onload = ev => {
+                             try {
+                               const data = JSON.parse(ev.target.result);
+                               if (Array.isArray(data)) {
+                                 const norm = data.map(x => ({
+                                   id: x.id || `h_${Math.random().toString(36).slice(2)}`,
+                                   pointId: x.pointId,
+                                   region: x.region || (pointById.get(x.pointId)?.region ?? 'unknown'),
+                                   side: x.side || (pointById.get(x.pointId)?.side ?? 'na'),
+                                   ts: typeof x.ts === 'number' ? x.ts : Date.parse(x.ts) || Date.now(),
+                                   note: x.note || '',
+                                 })).sort((a,b)=>b.ts-a.ts);
+                                 setHistory(norm);
+                               }
+                             } catch { alert('Arquivo inválido.'); }
+                           };
+                           r.readAsText(file);
+                         }} />
+                </label>
+                <button className="btn-outline" onClick={() => {
+                  const blob = new Blob([JSON.stringify(history, null, 2)], { type:'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `insulin-history-${new Date().toISOString().slice(0,10)}.json`; a.click();
+                  URL.revokeObjectURL(url);
+                }}>Exportar JSON</button>
+                <button className="btn-outline" onClick={() => setView('main')}>Voltar</button>
+              </div>
+            </div>
+
+            <div className="card p-4">
+              {history.length === 0 ? (
+                <div className="text-sm text-gray-500">Sem registros ainda.</div>
+              ) : (
+                <div className="space-y-2">
+                  {history.map(h => {
+                    const pt = pointById.get(h.pointId);
+                    return (
+                      <div key={h.id} className="flex items-start justify-between gap-3 border-b pb-2">
+                        <div>
+                          <div className="font-medium">{pt?.areaName} · {pt?.name} ({h.side === 'left' ? 'Esquerdo' : 'Direito'})</div>
+                          <div className="text-xs text-gray-600">{new Date(h.ts).toLocaleString(locale, { dateStyle:'short', timeStyle:'short' })}</div>
+                          {editId === h.id ? (
+                            <textarea className="mt-2 w-full border rounded p-2" value={editNote}
+                                      onChange={e=>setEditNote(e.target.value)} placeholder="Observações" />
+                          ) : (h.note ? <div className="text-sm mt-1">{h.note}</div> : null)}
+                        </div>
+                        <div className="flex gap-2">
+                          {editId === h.id ? (
+                            <>
+                              <button className="btn" onClick={() => { 
+                                const upd = history.map(x => x.id===h.id ? { ...x, note: editNote } : x);
+                                setHistory(upd); setEditId(null);
+                              }}>Salvar</button>
+                              <button className="btn-outline" onClick={() => setEditId(null)}>Cancelar</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="btn-outline" onClick={() => { setEditId(h.id); setEditNote(h.note||''); }}>Editar</button>
+                              <button className="btn-outline" onClick={() => setHistory(history.filter(x => x.id !== h.id))}>Excluir</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+        const SettingsView = () => (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Configurações</h2>
+              <button className="btn-outline" onClick={() => setView('main')}>Voltar</button>
+            </div>
+            <div className="card p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Cooldown por ponto (dias)</label>
+                  <input type="number" min="1" max="30" className="w-full border rounded px-3 py-2"
+                         value={prefs.cooldownDays}
+                         onChange={e => setPrefs({ ...prefs, cooldownDays: Math.max(1, Number(e.target.value||1)) })}/>
+                </div>
+                <label className="inline-flex items-center gap-2 mt-6">
+                  <input type="checkbox" checked={prefs.alternateSide}
+                         onChange={e => setPrefs({ ...prefs, alternateSide: e.target.checked })}/>
+                  Alternar lado automaticamente
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={prefs.alternateRegion}
+                         onChange={e => setPrefs({ ...prefs, alternateRegion: e.target.checked })}/>
+                  Alternar região automaticamente
+                </label>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Aplicações por dia (slots)</label>
+                  <input type="number" min="1" max="6" className="w-full border rounded px-3 py-2"
+                         value={prefs.dailySlots}
+                         onChange={e => setPrefs({ ...prefs, dailySlots: Math.max(1, Number(e.target.value||1)) })}/>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-medium mb-1">Regiões ativas</div>
+                <div className="flex gap-4">
+                  {Object.values(injectionPoints).map(area => (
+                    <label key={area.region} className="inline-flex items-center gap-2">
+                      <input type="checkbox" checked={prefs.enabledRegions[area.region]}
+                             onChange={e => setPrefs({ ...prefs, enabledRegions: { ...prefs.enabledRegions, [area.region]: e.target.checked } })}/>
+                      {area.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+        return (
+          <div className="container mx-auto max-w-4xl p-4 space-y-4">
+            {view === 'main' && <MainView />}
+            {view === 'history' && <HistoryView />}
+            {view === 'settings' && <SettingsView />}
           </div>
         );
       }
